@@ -356,11 +356,33 @@ def page_games():
         init_color_game_state()
         st.subheader("Color Match Game")
 
-        st.write(f"Click the button with this color name: **{st.session_state.color_target}**")
+        st.write(f"Click the button matching this color name: **{st.session_state.color_target}**")
+
+        # Har color ka proper HTML color
+        color_to_hex = {
+            "Red": "#FF4B4B",
+            "Green": "#22C55E",
+            "Blue": "#3B82F6",
+            "Yellow": "#EAB308",
+        }
 
         cols = st.columns(2)
         for i, color in enumerate(st.session_state.color_options):
             with cols[i % 2]:
+                # Upar ek coloured box dikhayenge
+                st.markdown(
+                    f"""
+                    <div style="
+                        width: 100%;
+                        height: 36px;
+                        background: {color_to_hex.get(color, '#999999')};
+                        border-radius: 8px;
+                        margin-bottom: 6px;
+                    "></div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                # Neeche normal button (text)
                 if st.button(color, key=f"color_btn_{i}"):
                     handle_color_click(color)
 
