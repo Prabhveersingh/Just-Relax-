@@ -4,11 +4,14 @@ import sqlite3
 import os
 import random
 
-DB_PATH = "mood_journal.db"
+# ----------------- DB CONFIG -----------------
+DB_DIR = "database"
+DB_PATH = os.path.join(DB_DIR, "mood_journal.db")
 
 
 # ----------------- DB Helpers -----------------
 def init_db():
+    os.makedirs(DB_DIR, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
@@ -53,7 +56,8 @@ def get_mood_days():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT COUNT(DISTINCT DATE(timestamp)) FROM mood_entries")
-    count = c.fetchone()[0] or 0
+    row = c.fetchone()
+    count = row[0] if row and row[0] is not None else 0
     conn.close()
     return count
 
@@ -62,7 +66,8 @@ def get_journal_days():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT COUNT(DISTINCT DATE(timestamp)) FROM journal_entries")
-    count = c.fetchone()[0] or 0
+    row = c.fetchone()
+    count = row[0] if row and row[0] is not None else 0
     conn.close()
     return count
 
@@ -88,11 +93,148 @@ def analyze_mood(text: str):
     return msg, label
 
 
+# ----------------- Color Game State -----------------
+def init_color_game_state():
+    if "color_options" not in st.session_state:
+        reset_color_game()
+    if "color_result" not in st.session_state:
+        st.session_state.color_result = ""
+
+
+def reset_color_game():
+    colors = ["Red", "Green", "Blue", "Yellow"]
+    st.session_state.color_options = colors
+    st.session_state.color_target = random.choice(colors)
+    st.session_state.color_result = ""
+
+
+def handle_color_click(color_clicked: str):
+    target = st.session_state.color_target
+    if color_clicked == target:
+        st.session_state.color_result = "✅ Correct! Great job!"
+        reset_color_game()
+    else:
+        st.session_state.color_result = "❌ Wrong! Try again."
+
+
+# ----------------- Memory Game State -----------------
+def init_memory_game_state():
+    if "memory_values" not in st.session_state:
+        values = list(range(8)) * 2  # 8 pairs
+        random.shuffle(values)
+        st.session_state.memory_values = values
+        st.session_state.memory_flipped = [False] * len(values)
+        st.session_state.first_index = None
+        st.session_state.second_index = None
+        st.session_state.memory_message = ""
+
+
+def reset_memory_game():
+    values = list(range(8)) * 2
+    random.shuffle(values)
+    st.session_state.memory_values = values
+    st.session_state.memory_flipped = [False] * len(values)
+    st.session_state.first_index = None
+    st.session_state.second_index = None
+    st.session_state.memory_message = ""
+
+
+def resolve_previous_pair():
+    fi = st.session_state.first_index
+    si = st.session_state.second_index
+    if fi is None or si is None:
+        return
+
+    vals = st.session_state.memory_values
+    flipped = st.session_state.memory_flipped
+
+    if vals[fi] != vals[si]:
+        flipped[fi] = False
+        flipped[si] = False
+
+    st.session_state.first_index = None
+    st.session_state.second_index = None
+
+
+def handle_memory_click(index: int):
+    flipped = st.session_state.memory_flipped
+    vals = st.session_state.memory_values
+
+    # If previous pair exists, resolve it first
+    if st.session_state.first_index is not None and st.session_state.second_index is not None:
+        resolve_previous_pair()
+
+    # Ignore click on already flipped button
+    if flipped[index]:
+        return
+
+    if st.session_state.first_index is None:
+        st.session_state.first_index = index
+        flipped[index] = True
+        st.session_state.memory_message = ""
+    else:
+        st.session_state.second_index = index
+        flipped[index] = True
+        if vals[st.session_state.first_index] == vals[index]:
+            st.session_state.memory_message = "✅ Match!"
+        else:
+            st.session_state.memory_message = "❌ Not a match."
+
+    # Check win
+    if all(st.session_state.memory_flipped):
+        st.session_state.memory_message = "🏆 All pairs found! Click 'Reset game' to play again."
+
+
+# ----------------- Breathing Exercise State -----------------
+BREATH_STEPS = [
+    "Inhale... 🌬️ (4 seconds)",
+    "Hold... 🤚 (4 seconds)",
+    "Exhale... 💨 (4 seconds)",
+    "Relax... 🧘 (breathe normally)",
+]
+
+
+def init_breath_state():
+    if "breath_index" not in st.session_state:
+        st.session_state.breath_index = 0
+
+
+def next_breath_step():
+    st.session_state.breath_index = (st.session_state.breath_index + 1) % len(BREATH_STEPS)
+
+
+def reset_breath():
+    st.session_state.breath_index = 0
+
+
 # ----------------- Pages -----------------
+def page_main_menu():
+    st.header("🌈 Wellness & Mood Tracker")
+
+    st.markdown(
+        """
+Welcome to your **all-in-one wellness app** (web version of your Kivy project) 💚  
+
+Use the **sidebar** to navigate between:
+
+- 🧠 **Mood Check** – analyze how you're feeling  
+- 📓 **Journal** – write & reflect  
+- 🌬️ **Breathing** – quick calm-down guide  
+- 💡 **Tips** – self-care suggestions  
+- 🎮 **Games** – Color game & Memory puzzle  
+- 📊 **Progress** – see how consistent you are  
+        """
+    )
+
+
 def page_mood():
     st.header("🧠 Mood Check")
 
-    text = st.text_area("How are you feeling today?", height=150, placeholder="Type your thoughts here...")
+    text = st.text_area(
+        "How are you feeling today?",
+        height=150,
+        placeholder="Type your thoughts here...",
+    )
 
     if st.button("Analyze Mood"):
         msg, label = analyze_mood(text)
@@ -107,7 +249,11 @@ def page_mood():
 def page_journal():
     st.header("📓 Journal")
 
-    text = st.text_area("Write your journal entry:", height=220, placeholder="Write anything on your mind...")
+    text = st.text_area(
+        "Write your journal entry:",
+        height=220,
+        placeholder="Write anything on your mind...",
+    )
 
     col1, col2 = st.columns(2)
     with col1:
@@ -135,68 +281,132 @@ def page_journal():
 def page_breathing():
     st.header("🌬️ Breathing Exercise")
 
-    st.write("A simple 4-4-4 breathing cycle to calm yourself:")
+    init_breath_state()
+
+    st.write("Follow the 4-step cycle to calm your mind:")
 
     st.markdown(
         """
-        1. **Inhale** slowly for 4 seconds  
-        2. **Hold** your breath for 4 seconds  
-        3. **Exhale** gently for 4 seconds  
-        4. Repeat for 5–10 cycles 🧘
+1. **Inhale** slowly through your nose  
+2. **Hold** your breath gently  
+3. **Exhale** through your mouth  
+4. **Relax** your body and mind  
+
+You can tap **Next step** to move through the cycle at your own pace.
         """
     )
 
-    if st.button("Show a random calming tip"):
+    st.subheader("Current step:")
+    st.info(BREATH_STEPS[st.session_state.breath_index])
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Next step ➡️"):
+            next_breath_step()
+    with col2:
+        if st.button("Reset cycle 🔁"):
+            reset_breath()
+
+    if st.button("Give me a calming tip ✨"):
         tips = [
-            "Close your eyes and focus only on your breath.",
-            "Relax your shoulders and unclench your jaw.",
-            "Notice 3 things you can see, 3 you can hear, 3 you can feel.",
-            "It's okay to pause. You're allowed to rest. 💙",
+            "Close your eyes and notice the airflow in your nose.",
+            "Relax your shoulders and let them drop down.",
+            "Unclench your jaw and soften your face muscles.",
+            "Put one hand on your chest and feel it rise and fall.",
+            "Tell yourself: 'I am safe in this moment.' 💙",
         ]
         st.success(random.choice(tips))
 
 
-# ----------------- Color Game -----------------
-def init_color_game_state():
-    if "color_target" not in st.session_state:
-        colors = ["Red", "Green", "Blue", "Yellow"]
-        st.session_state.color_options = colors
-        st.session_state.color_target = random.choice(colors)
-        st.session_state.color_result = ""
+def page_tips():
+    st.header("💡 Self-care Tips")
 
+    st.markdown(
+        """
+Some quick **wellness tips** you can try today:
 
-def reset_color_game():
-    colors = ["Red", "Green", "Blue", "Yellow"]
-    st.session_state.color_options = colors
-    st.session_state.color_target = random.choice(colors)
-    st.session_state.color_result = ""
+- 🕒 Take a **5-minute break** away from your screen  
+- 💧 Drink a glass of water slowly  
+- 🚶 Go for a **short walk** or stretch your legs  
+- 📵 Put your phone away for 10 minutes  
+- 🎧 Listen to a song that makes you feel calm  
+- ✍️ Write down 3 things you're grateful for  
+- 😴 Try to sleep and wake up at a consistent time  
+        """
+    )
+
+    if st.button("Give me a random tip 🎲"):
+        tips = [
+            "Message a friend and ask how they are feeling.",
+            "Clean a small corner of your room or desk.",
+            "Light a candle or smell something pleasant.",
+            "Breathe in for 4 seconds, out for 6 seconds – repeat 10 times.",
+            "Say out loud: 'It's okay to not be okay all the time.'",
+        ]
+        st.info(random.choice(tips))
 
 
 def page_games():
-    st.header("🎮 Mini Game – Color Match")
+    st.header("🎮 Games")
 
-    init_color_game_state()
+    tab1, tab2 = st.tabs(["🎨 Color Match", "🧠 Memory Puzzle"])
 
-    st.write(f"Click the button with this color name: **{st.session_state.color_target}**")
+    # ---------- Color Game ----------
+    with tab1:
+        init_color_game_state()
+        st.subheader("Color Match Game")
 
-    cols = st.columns(2)
-    for i, color in enumerate(st.session_state.color_options):
-        with cols[i % 2]:
-            if st.button(color, key=f"color_btn_{i}"):
-                if color == st.session_state.color_target:
-                    st.session_state.color_result = "✅ Correct! Great job!"
-                    reset_color_game()
-                else:
-                    st.session_state.color_result = "❌ Wrong! Try again."
+        st.write(f"Click the button with this color name: **{st.session_state.color_target}**")
 
-    if st.session_state.color_result:
-        if "Correct" in st.session_state.color_result:
-            st.success(st.session_state.color_result)
-        else:
-            st.error(st.session_state.color_result)
+        cols = st.columns(2)
+        for i, color in enumerate(st.session_state.color_options):
+            with cols[i % 2]:
+                if st.button(color, key=f"color_btn_{i}"):
+                    handle_color_click(color)
+
+        if st.session_state.color_result:
+            if "Correct" in st.session_state.color_result:
+                st.success(st.session_state.color_result)
+            else:
+                st.error(st.session_state.color_result)
+
+        if st.button("Reset color game 🔁"):
+            reset_color_game()
+            st.info("New color selected. Play again!")
+
+    # ---------- Memory Game ----------
+    with tab2:
+        st.subheader("Memory Pair Match")
+
+        init_memory_game_state()
+
+        if st.button("Reset memory game 🔁"):
+            reset_memory_game()
+
+        values = st.session_state.memory_values
+        flipped = st.session_state.memory_flipped
+
+        # 4 x 4 grid
+        for row in range(4):
+            cols = st.columns(4)
+            for col in range(4):
+                idx = row * 4 + col
+                label = str(values[idx]) if flipped[idx] else "?"
+                with cols[col]:
+                    st.button(
+                        label,
+                        key=f"mem_{idx}",
+                        on_click=handle_memory_click,
+                        args=(idx,),
+                    )
+
+        if st.session_state.memory_message:
+            if "✅" in st.session_state.memory_message or "🏆" in st.session_state.memory_message:
+                st.success(st.session_state.memory_message)
+            else:
+                st.warning(st.session_state.memory_message)
 
 
-# ----------------- Progress Page -----------------
 def page_progress():
     st.header("📊 Your Progress")
 
@@ -223,22 +433,33 @@ def main():
 
     init_db()
 
-    st.title("🌈 Wellness & Mood Tracker")
-
+    # Sidebar navigation (like your ScreenManager)
     page = st.sidebar.radio(
         "Navigate",
-        ["Mood Check", "Journal", "Breathing Exercise", "Games", "Progress"],
+        [
+            "🏠 Main Menu",
+            "🧠 Mood Check",
+            "📓 Journal",
+            "🌬️ Breathing Exercise",
+            "💡 Tips",
+            "🎮 Games",
+            "📊 Progress",
+        ],
     )
 
-    if page == "Mood Check":
+    if page == "🏠 Main Menu":
+        page_main_menu()
+    elif page == "🧠 Mood Check":
         page_mood()
-    elif page == "Journal":
+    elif page == "📓 Journal":
         page_journal()
-    elif page == "Breathing Exercise":
+    elif page == "🌬️ Breathing Exercise":
         page_breathing()
-    elif page == "Games":
+    elif page == "💡 Tips":
+        page_tips()
+    elif page == "🎮 Games":
         page_games()
-    elif page == "Progress":
+    elif page == "📊 Progress":
         page_progress()
 
 
